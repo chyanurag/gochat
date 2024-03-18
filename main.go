@@ -3,78 +3,52 @@ package main
 import (
 	"fmt"
 	"net"
-	"os"
 	"sync"
+    "strings"
 )
 
-func sliceFind(s []net.Conn, target net.Conn) int { 
-    for i, v := range s{
-        if v.RemoteAddr().String() == target.RemoteAddr().String() {
-            return i
-        }
-    }
-    return -1
-}
-
-const hostport = ":4444"
 var wg sync.WaitGroup
+
 var users []net.Conn
 
-func broadcast(msg string, conn net.Conn){
-    for _, user := range users {
-        if user.RemoteAddr().String() != conn.RemoteAddr().String() {
-            user.Write([]byte(msg))
-        }
+func broadcast(msg string){
+    for _, u := range users {
+        u.Write([]byte(msg))
     }
 }
 
-func handleConnection(conn net.Conn){
-    wg.Add(1)
+func handleClient(conn net.Conn){
     defer wg.Done()
-
-    if sliceFind(users, conn) == -1{
-        users = append(users, conn)
-    }
-    broadcast(conn.RemoteAddr().String() + " connected", conn)
-
+    conn.Write([]byte("Please provider your username "))
+    name := make([]byte, 1024)
+    conn.Read(name)
+    username := strings.Split(strings.TrimSpace(string(name)), "\n")[0]
+    fmt.Println(username, "connected")
     for {
-        msg := make([]byte, 1024)
-        _, e := conn.Read(msg)
-        if e != nil {
-            broadcast(conn.LocalAddr().String() + " disconnected", conn)
-            idx := sliceFind(users, conn)
-            var temp []net.Conn
-            for i, v := range users {
-                if i != idx {
-                    temp = append(temp, v)
-                }
-            }
-            users = temp
+        data := make([]byte, 1024)
+        _, err := conn.Read(data)
+        if err != nil {
+            fmt.Println(username, "disconnected")
             break
         }
-        broadcast(conn.RemoteAddr().String() + " : " + string(msg), conn)
+        fmt.Println(username + " : "+string(data))
+        broadcast(username + " : "+string(data))
     }
 }
 
 func main(){
 
-    defer wg.Wait()
-
-    socket, err := net.Listen("tcp", hostport)
+    listener, err := net.Listen("tcp", ":8080")
     if err != nil {
-        fmt.Fprintln(os.Stderr, "Couldn't listen on port " + hostport)
-        os.Exit(-1)
+        panic(err)
     }
-    defer socket.Close()
-    fmt.Println("Started listening on " + hostport)
 
     for {
-        conn, err := socket.Accept()
+        conn, err := listener.Accept()
         if err != nil {
-            fmt.Println("Error accepting connection : " + err.Error())
-            return
+            panic(err)
         }
-
-        go handleConnection(conn)
+        go handleClient(conn)
     }
+
 }
